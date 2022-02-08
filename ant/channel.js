@@ -1,6 +1,17 @@
+import { xf, exists } from '../functions.js';
 import { message } from './message.js';
-import { xf } from '../xf.js';
-import { first, empty, conj, xor, exists, delay } from '../functions.js';
+
+const ChannelTypes = {
+    slave: {
+        bidirectional:       0x00,
+        sharedBidirectional: 0x20,
+        receiveOnly:         0x40,
+    },
+    master: {
+        bidirectional:       0x10,
+        sharedBidirectional: 0x30,
+    }
+};
 
 const keys = {
     antPlus: [0xB9, 0xA5, 0x21, 0xFB, 0xBD, 0x72, 0xC3, 0x45],
@@ -77,15 +88,19 @@ class Channel {
             timeoutReject  = resolve;
             timeoutResolve = reject;
             timeoutId = setTimeout(() => {
-                timeoutReject(`Channel ${self.number} response timeout for ${message.idToString(id)}`);
+                timeoutReject(false);
                 responseReject();
             }, timeout);
         });
 
-        let responsePromise = new Promise((resolve, reject) => {
-            responseReject  = resolve;
-            responseResolve = reject;
-            self.resq[id] = (x) => { responseResolve(x); timeoutResolve(); };
+        let responsePromise = new Promise((res, rej) => {
+            responseReject  = rej;
+            responseResolve = res;
+            self.resq[id] = (x) => {
+                responseResolve(x);
+                clearTimeout(timeoutId);
+                timeoutResolve();
+            };
         });
         await self.write(msg);
         const res = await Promise.race([responsePromise, timeoutPromise])
@@ -100,48 +115,52 @@ class Channel {
         const self = this;
         return await self.request(message.ids.channelStatus);
     }
-    async requestId() {
-        const self = this;
-        return await self.request(message.ids.channelId);
-    }
     async open() {
         const self = this;
         let config = self.toMessageConfig();
 
-        await self.write(message.UnassignChannel(config).buffer);
+        await self.writeWithResponse(message.UnassignChannel(config).buffer,
+                                     message.ids.unassignChannel);
+        await self.writeWithResponse(message.SetNetworkKey(config).buffer,
+                                     message.ids.setNetworkKey);
+        await self.writeWithResponse(message.AssignChannel(config).buffer,
+                                     message.ids.assignChannel);
+        await self.writeWithResponse(message.ChannelId(config).buffer,
+                                     message.ids.setChannelId);
+        await self.writeWithResponse(message.ChannelFrequency(config).buffer,
+                                     message.ids.channelFrequency);
+        await self.writeWithResponse(message.ChannelPeriod(config).buffer,
+                                     message.ids.channelPeriod);
+        await self.writeWithResponse(message.OpenChannel(config).buffer,
+                                     message.ids.openChannel);
+        await self.requestStatus();
 
-        await self.write(message.SetNetworkKey(config).buffer);
-        await self.write(message.AssignChannel(config).buffer);
-        await self.write(message.ChannelId(config).buffer);
-        await self.write(message.ChannelFrequency(config).buffer);
-        await self.write(message.ChannelPeriod(config).buffer);
-        await self.write(message.OpenChannel(config).buffer);
         self.isOpen = true;
-        console.log(`channel:open ${self.number}`);
+        console.log(`:channel ${self.number} :open`);
     }
     async close() {
         const self = this;
         let config = self.toMessageConfig();
-        await self.write(message.CloseChannel(config).buffer); // , message.ids.closeChannel
+
+        await self.writeWithResponse(message.CloseChannel(config).buffer, message.ids.closeChannel);
+        await self.requestStatus();
+
         self.isOpen = false;
-        console.log(`channel:close ${self.number}`);
         return;
     }
     connect()    { this.open(); }
     disconnect() { this.close(); }
     onData(data) {
         const self = this;
-        if(self.isOpen) {
-            if(message.isBroadcast(data))         { self.onBroadcast(data); }
-            if(message.isAcknowledged(data))      { self.onBroadcast(data); }
-            if(message.isBurst(data))             { self.onBroadcast(data); }
-            if(message.isResponse(data))          { self.onResponse(data); }
-            if(message.isRequestedResponse(data)) { self.onRequestedResponse(data); }
-            if(message.isEvent(data))             { self.onEvent(data); }
-            if(message.isSerialError(data))       { self.onSerialError(data); }
-            if(message.isBroadcastExt(data))      { self.onBroadcast(data); }
-            if(message.isBurstAdv(data))          { self.onBroadcast(data); }
-        }
+        if(message.isBroadcast(data))         { self.onBroadcast(data); }
+        if(message.isAcknowledged(data))      { self.onBroadcast(data); }
+        if(message.isBurst(data))             { self.onBroadcast(data); }
+        if(message.isResponse(data))          { self.onResponse(data); }
+        if(message.isRequestedResponse(data)) { self.onRequestedResponse(data); }
+        if(message.isEvent(data))             { self.onEvent(data); }
+        if(message.isSerialError(data))       { self.onSerialError(data); }
+        if(message.isBroadcastExt(data))      { self.onBroadcast(data); }
+        if(message.isBurstAdv(data))          { self.onBroadcast(data); }
     }
     onBroadcast(data) {
         const self = this;
@@ -153,9 +172,11 @@ class Channel {
         const idStr   = message.idToString(id);
         const toIdStr = message.idToString(toId);
         const codeStr = message.eventCodeToString(code);
-        console.log(`Channel ${channel} ${toIdStr}: ${codeStr} ${data}`);
+        console.log(`:channel ${channel} :${toIdStr}: '${codeStr}' ${data}`);
 
-        if(toId === message.ids.closeChannel) {}
+        if(exists(self.resq[toId])) {
+            self.resq[toId](codeStr);
+        }
     }
     onRequestedResponse(data) {
         const self = this;
@@ -166,6 +187,7 @@ class Channel {
         }
         if(message.isChannelStatus(data)) {
             res = message.readChannelStatus(data);
+            console.log(`:channel ${self.number} :status :${res} ${data}`);
             self.resq[message.ids.channelStatus](res);
         }
         if(message.isANTVersion(data)) {
@@ -188,11 +210,11 @@ class Channel {
         if(code === message.events.event_channel_closed) {
             self.resq[message.ids.closeChannel]();
         }
-        console.log(`Channel ${channel} event: ${message.eventCodeToString(code)} ${data}`);
+        console.log(`:channel ${channel} :event '${message.eventCodeToString(code)}' ${data}`);
     }
     onSerialError(error) {
         const self = this;
-        console.error(`Serial error: ${error}`);
+        console.error(`:serial :error`, error);
     }
     toMessageConfig() {
         const self = this;
@@ -211,4 +233,4 @@ class Channel {
     }
 }
 
-export { Channel };
+export { Channel, ChannelTypes, keys };

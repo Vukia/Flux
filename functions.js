@@ -1,49 +1,169 @@
-let sin    = x => Math.sin(x);
-let cos    = x => Math.cos(x);
-let arctan = x => Math.atan(x);
-let abs    = x => Math.abs(x);
-let sqrt   = x => Math.sqrt(x);
-let round  = x => Math.round(x);
-let floor  = x => Math.floor(x);
-let ceil   = x => Math.ceil(x);
-let exp    = x => Math.exp(x);
-let sqr    = x => x * x;
-let avg    = (x, y) => (x + y) / 2;
-let format = (x, precision = 1000) => round(x * precision) / precision;
-let mps    = kph => format(kph / 3.6);
-let kph    = mps => 3.6 * mps;
-let mToYd  = m   => 1.09361 * m;
-let mpsToMph   = mps => 2.23694  * mps;
-let kmhToMph   = kmh => 0.621371 * kmh;
-let kgToLbs    = kg  => parseInt(2.20462 * kg);
-let lbsToKg    = lbs => (0.453592 * lbs);
-let nextToLast = xs  => xs[xs.length - 2];
+//
+// A collection of common functions that makes JS more functional
+//
 
-const empty   = (arr) => { return ( (arr === undefined) || !(arr.length > 0)); };
-const delay   = ms => new Promise(res => setTimeout(res, ms));
-const digits  = n => Math.log(n) * Math.LOG10E + 1 | 0;
-const rand    = (min = 0, max = 10) => Math.floor(Math.random() * (max - min + 1) + min);
+// Values
+function equals(a, b) {
+    return Object.is(a, b);
+}
 
-let last   = xs => xs[xs.length - 1];
-let first  = xs => xs[0];
-let second = xs => xs[1];
-let third  = xs => xs[2];
+function isNull(x) {
+    return Object.is(x, null);
+}
 
-function memberOf(xs, y) {
-    return xs.filter(x => x === y).length > 0;
+function isUndefined(x) {
+    return Object.is(x, undefined);
+}
+
+function exists(x) {
+    if(isNull(x) || isUndefined(x)) { return false; }
+    return true;
+}
+
+function existance(value, fallback) {
+    if(exists(value))    return value;
+    if(exists(fallback)) return fallback;
+    throw new Error(`existance needs a fallback value `, value);
+}
+
+function isFunction(x) {
+    return equals(typeof x, 'function');
 }
 
 function isArray(x) {
     return Array.isArray(x);
 }
+
 function isObject(x) {
-    return typeof x === 'object' && !isArray(x);
-}
-function conj(target, source) {
-    return Object.assign(target, source);
+    return equals(typeof x, 'object') && !(isArray(x));
 }
 
-function avgOfArray(xs, prop = false) {
+function isCollection(x) {
+    return isArray(x) || isObject(x);
+}
+
+function isString(x) {
+    return equals(typeof x, 'string');
+}
+
+function isNumber(x) {
+    return equals(typeof x, 'number');
+}
+
+function isAtomic(x) {
+    return isNumber(x) || isString(x);
+}
+
+// Collections
+function empty(x) {
+    if(isNull(x)) throw new Error(`empty called with null: ${x}`);
+    if(!isCollection(x) && !isString(x) && !isUndefined(x)) {
+        throw new Error(`empty takes a collection: ${x}`);
+    }
+    if(isUndefined(x)) return true;
+    if(isArray(x))  {
+        if(equals(x.length, 0)) return true;
+    }
+    if(isObject(x)) {
+        if(equals(Object.keys(x).length, 0)) return true;
+    }
+    if(isString(x)) {
+        if(equals(x, "")) return true;
+    }
+    return false;
+};
+
+function first(xs) {
+    if(!isArray(xs) && !isString(xs) && !isUndefined(xs)) {
+        throw new Error(`first takes ordered collection or a string: ${xs}`);
+    }
+    if(isUndefined(xs)) return undefined;
+    if(empty(xs)) return undefined;
+    return xs[0];
+}
+
+function second(xs) {
+    if(!isArray(xs) && !isString(xs) && !isUndefined(xs)) {
+        throw new Error(`second takes ordered collection or a string: ${xs}`);
+    }
+    if(isUndefined(xs)) return undefined;
+    if(empty(xs)) return undefined;
+    if(xs.length < 2) return undefined;
+    return xs[1];
+}
+
+function third(xs) {
+    if(!isArray(xs) && !isString(xs) && !isUndefined(xs)) {
+        throw new Error(`third takes ordered collection or a string: ${xs}`);
+    }
+    if(isUndefined(xs)) return undefined;
+    if(empty(xs)) return undefined;
+    if(xs.length < 3) return undefined;
+    return xs[2];
+}
+
+function last(xs) {
+    if(!isArray(xs) && !isString(xs) && !isUndefined(xs)) {
+        throw new Error(`last takes ordered collection or a string: ${xs}`);
+    }
+    if(isUndefined(xs)) return undefined;
+    if(empty(xs)) return undefined;
+    return xs[xs.length - 1];
+}
+
+function map(coll, fn) {
+    if(isArray(coll)) return coll.map(fn);
+    if(isObject(coll)) {
+        return Object.fromEntries(
+            Object.entries(coll).map(([k, v], i) => [k, (fn(v, k, i))]));
+    }
+    if(isString(coll)) {
+        return coll.split('').map(fn).join('');
+    }
+    throw new Error(`map called with unkown collection `, coll);
+}
+
+function traverse(obj, fn = ((x) => x), acc = []) {
+
+    function recur(fn, obj, keys, acc) {
+        if(empty(keys)) {
+            return acc;
+        } else {
+            let [k, ...ks] = keys;
+            let v = obj[k];
+
+            if(isObject(v)) {
+                acc = recur(fn, v, Object.keys(v), acc);
+                return recur(fn, obj, ks, acc);
+            } else {
+                acc = fn(acc, k, v, obj);
+                return recur(fn, obj, ks, acc);
+            }
+        }
+    }
+    return recur(fn, obj, Object.keys(obj), acc);
+}
+
+function getIn(...args) {
+    let [collection, ...path] = args;
+    return path.reduce((acc, key) => {
+        if(exists(acc[key])) return acc[key];
+        return undefined;
+    }, collection);
+}
+
+function set(coll, k, v) {
+    coll = (coll || {});
+    coll[k] = v;
+    return coll;
+}
+
+function setIn(coll={}, [k, ...keys], v) {
+    return keys.length ? set(coll, k, setIn(coll[k], keys, v)) : set(coll, k, v);
+}
+
+
+function avg(xs, prop = false) {
     if(prop !== false) {
         return xs.reduce( (acc,v,i) => acc+(v[prop]-acc)/(i+1), 0);
     } else {
@@ -51,7 +171,7 @@ function avgOfArray(xs, prop = false) {
     }
 }
 
-function maxOfArray(xs, prop = false) {
+function max(xs, prop = false) {
     if(prop !== false) {
         return xs.reduce( (acc,v,i) => v[prop] > acc ? v[prop] : acc, 0);
     } else {
@@ -59,289 +179,270 @@ function maxOfArray(xs, prop = false) {
     }
 };
 
-function sum(xs, prop = false) {
-    if(prop !== false) {
-        return xs.reduce( (acc,v,i) => acc + v[prop], 0);
+function sum(xs, path = false) {
+    if(path !== false) {
+        return xs.reduce( (acc,v,i) => acc + v[path], 0);
     } else {
         return xs.reduce( (acc,v,i) => acc + v, 0);
     }
 };
 
-function splitAt(xs, at) {
-    let i = -1;
-    return xs.reduce((acc, x) => {
-        if((x === at) || (acc.length === 0 && x !== at)) {
-            acc.push([x]); i++;
-        } else {
-            acc[i].push(x);
-        }
-        return acc;
-    },[]);
+function rand(min = 0, max = 10) {
+    return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
-function parseNumber(n, type = 'Int') {
-    let value = 0;
-    if(type === 'Int') {
-        value = parseInt(n || 0);
-    } else {
-        value = parseFloat(n || 0);
-    }
-    return value;
+function capitalize(str) {
+    return str.trim().replace(/^\w/, (c) => c.toUpperCase());
+}
+
+// Functions
+function compose2(f, g) {
+    return function(...args) {
+        return f(g(...args));
+    };
+}
+
+function compose(...fns) {
+    return fns.reduce(compose2);
+}
+
+function pipe(...fns) {
+    return fns.reduceRight(compose2);
+}
+
+function repeat(n) {
+    return function(f) {
+        return function(x) {
+            if (n > 0) {
+                return repeat(n - 1)(f)(f(x));
+            } else {
+                return x;
+            }
+        };
+    };
 };
 
-function fixInRange(target, min, max) {
-    if(target >= max) {
-        return max;
-    } else if(target < min) {
-        return min;
-    } else {
-        return target;
-    }
-};
-
-function powerToZone(value, ftp = 256) {
-    let name = 'one';
-    let hex   = '#636468';
-    if(value < (ftp * 0.55)) {
-        name = 'one';
-    } else if(value < (ftp * 0.76)) {
-        name = 'two';
-    } else if(value < (ftp * 0.88)) {
-        name = 'three';
-    } else if(value < (ftp * 0.95)) {
-        name = 'four';
-    } else if(value < (ftp * 1.06)) {
-        name = 'five';
-    } else if (value < (ftp * 1.20)) {
-        name = 'six';
-    } else {
-        name = 'seven';
-    }
-    return {name: name};
-}
-
-function valueToHeight(max, value) {
-    return 100 * (value/max);
-}
-
-function hrToColor(value) {
-    let color = 'gray';
-    if(value < 100) {
-        color = 'gray';
-    } else if(value < 120) {
-        color = 'blue';
-    } else if(value < 160) {
-        color = 'green';
-    } else if(value < 175) {
-        color = 'yellow';
-    } else if(value < 190) {
-        color = 'orange';
-    } else {
-        color = 'red';
-    }
-    return color;
-}
-
-function dateToDashString(date) {
-    const day    = (date.getDate()).toString().padStart(2, '0');
-    const month  = (date.getMonth()+1).toString().padStart(2, '0');
-    const year   = date.getFullYear().toString();
-    const hour   = (date.getHours()).toString().padStart(2, '0');
-    const minute = (date.getMinutes()).toString().padStart(2, '0');
-    return `${day}-${month}-${year}-at-${hour}-${minute}h`;
-}
-
-function timeDiff(timestamp1, timestamp2) {
-    let difference = (timestamp1 / 1000) - (timestamp2 / 1000);
-    return round(abs(difference));
-};
-
-function secondsToHms(elapsed, compact = false) {
-    let hour = Math.floor(elapsed / 3600);
-    let min  = Math.floor(elapsed % 3600 / 60);
-    let sec  = elapsed % 60;
-    let sD   = (sec < 10)  ? `0${sec}`  : `${sec}`;
-    let mD   = (min < 10)  ? `0${min}`  : `${min}`;
-    let hD   = (hour < 10) ? `0${hour}` : `${hour}`;
-    let hDs  = (hour < 10) ? `${hour}`  : `${hour}`;
-    let res  = ``;
-    if(compact) {
-        if(elapsed < 3600) {
-            res = `${mD}:${sD}`;
+function curry2(fn) {
+    return function (arg1, arg2) {
+        if(exists(arg2)) {
+            return fn(arg1, arg2);
         } else {
-            res = `${hD}:${mD}:${sD}`;
+            return function(arg2) {
+                return fn(arg1, arg2);
+            };
         }
-    } else {
-        res = `${hD}:${mD}:${sD}`;
-    }
-    return res ;
+    };
 }
 
-
-function formatSpeed(value, measurement = 'metric') {
-    if(measurement === 'imperial') {
-        value = `${kmhToMph(value).toFixed(1)}`;
-    } else {
-        value = `${(value).toFixed(1)}`;
-    }
-    return value;
+// Async
+function delay(ms) {
+    return new Promise(res => setTimeout(res, ms));
 }
 
-function formatDistance(meters, measurement = 'metric') {
-    let value = `0`;
-    let km    = (meters / 1000);
-    let miles = (meters / 1609.34);
-    let yards = mToYd(meters);
+// XF (Events)
+function XF(args = {}) {
+    let data = {};
+    let name = args.name || 'db';
 
-    if(measurement === 'imperial') {
-        value = (yards < 1609.34) ? `${(mToYd(meters)).toFixed(0)} yd` : `${miles.toFixed(2)} mi`;
-    } else {
-        value = (meters < 1000) ? `${meters.toFixed(0)} m` : `${km.toFixed(2)} km`;
+    function create(obj) {
+        data = proxify(obj);
     }
 
-    return value;
-}
-
-function toDecimalPoint (x, point = 2) {
-    return Number((x).toFixed(point));
-}
-
-function divisors(number) {
-    let divisors = [1];
-    for(let i=2; i < number/2; i++) {
-        if(number % i === 0) { divisors.push(i); }
+    function proxify(obj) {
+        let handler = {
+            set: (target, key, value) => {
+                target[key] = value;
+                dispatch(`${name}:${key}`, target);
+                return true;
+            }
+        };
+        return new Proxy(obj, handler);
     }
-    return divisors;
-}
 
-function hexToString(str) {
-    var j;
-    var hexes = str.match(/.{1,4}/g) || [];
-    var back = "";
-    for(j = 0; j<hexes.length; j++) {
-        back += String.fromCharCode(parseInt(hexes[j], 16));
+    function dispatch(eventType, value) {
+        window.dispatchEvent(evt(eventType)(value));
     }
-    return back;
-}
 
-function stringToHex(str) {
-    var hex, i;
-    var result = "";
-    for (i=0; i<str.length; i++) {
-        hex = str.charCodeAt(i).toString(16);
-        result += ("000"+hex).slice(-4);
-    }
-    return result;
-}
-
-function hex (n) {
-    let h = parseInt(n).toString(16).toUpperCase();
-    if(h.length === 1) {
-        h = '0'+ h;
-    }
-     return '0x' + h;
-}
-
-function arrayToString(array) {
-    return String.fromCharCode.apply(String, array);
-}
-
-function dataViewToString (dataview) {
-    let len = dataview.byteLength;
-    let str = '';
-    for(let i = 0; i < len; i++) {
-        let value = dataview.getUint8(i, true);
-        if(value === 0) {
-            str += '';
+    function sub(eventType, handler, element = undefined) {
+        if(exists(element)) {
+            element.addEventListener(eventType, handler, true);
+            return handler;
         } else {
-            str += hexToString(hex(value));
+            function handlerWraper(e) {
+                if(isStoreSource(eventType)) {
+                    handler(e.detail.data[evtProp(eventType)]);
+                } else {
+                    handler(e.detail.data);
+                }
+            }
+
+            window.addEventListener(eventType, handlerWraper, true);
+
+            return handlerWraper;
         }
     }
-    return str;
+
+    function reg(eventType, handler) {
+        window.addEventListener(eventType, e => handler(e.detail.data, data));
+    }
+
+    function unsub(eventType, handler, element = undefined) {
+        if(exists(element)) {
+            element.removeEventListener(eventType, handler, true);
+        } else {
+            window.removeEventListener(eventType, handler, true);
+        }
+    }
+
+    function isStoreSource(eventType) {
+        return equals(evtSource(eventType), name);
+    }
+
+    function evt(eventType) {
+        return function(value) {
+            return new CustomEvent(eventType, {detail: {data: value}});
+        };
+    }
+
+    function evtProp(eventType) {
+        return second(eventType.split(':'));
+    }
+
+    function evtSource(eventType) {
+        return first(eventType.split(':'));
+    }
+
+    return Object.freeze({
+        create,
+        reg,
+        sub,
+        dispatch,
+        unsub
+    });
 }
 
-const nthBit       = (field, bit) => (field >> bit) & 1;
-const toBool       = (bit) => !!(bit);
-const nthBitToBool = (field, bit) => toBool(nthBit(field, bit));
+const xf = XF();
 
-function xor(view) {
+// Bits
+function nthBit(field, bit) {
+    return (field >> bit) & 1;
+};
+
+function bitToBool(bit) {
+    return !!(bit);
+};
+
+function nthBitToBool(field, bit) {
+    return bitToBool(nthBit(field, bit));
+}
+
+function boolToNumber(bool) {
+    return +bool;
+}
+
+function dataviewToArray(dataview) {
+    return Array.from(new Uint8Array(dataview.buffer));
+}
+
+function dataviewToString(dataview) {
+    let utf8decoder = new TextDecoder('utf-8');
+    return utf8decoder.decode(dataview.buffer);
+}
+
+function stringToCharCodes(str) {
+    return str.split('').map(c => c.charCodeAt(0));
+}
+
+function stringToDataview(str) {
+    let charCodes = stringToCharCodes(str);
+    let uint8 = new Uint8Array(charCodes);
+    let dataview = new DataView(uint8.buffer);
+
+    return dataview;
+}
+
+function fromUint16(n) {
+    let buffer = new ArrayBuffer(2);
+    let view = new DataView(buffer);
+    view.setUint16(0, n, true);
+    return view;
+}
+
+function fromUint32(n) {
+    let buffer = new ArrayBuffer(4);
+    let view = new DataView(buffer);
+    view.setUint32(0, n, true);
+    return view;
+}
+
+function toUint8Array(n, type) {
+    if(type === 32) return fromUint32(n);
+    if(type === 16) return fromUint16(n);
+    return n;
+}
+
+function xor(view, start = 0, end = view.byteLength) {
     let cs = 0;
-    for (let i=0; i < view.byteLength; i++) {
+    const length = (end < 0) ? (view.byteLength + end) : end;
+    for (let i=start; i < length; i++) {
         cs ^= view.getUint8(i);
     }
     return cs;
 }
 
-function exists(x) {
-    if(x === null || x === undefined) {
-        return false;
-    }
-    return x;
-}
-
-function isSet(x, msg = 'Does not exist!') {
-    if(x === null || x === undefined) {
-        return false;
-    }
-    return true;
-}
-
 export {
-    sin,
-    cos,
-    arctan,
-    abs,
-    sqr,
-    exp,
-    sqrt,
-    mps,
-    kph,
-    mpsToMph,
-    kmhToMph,
-    kgToLbs,
-    lbsToKg,
-    avg,
-    rand,
-    digits,
-    conj,
+    // values
+    equals,
+    isNull,
+    isUndefined,
+    isFunction,
+    exists,
+    existance,
+    isArray,
+    isObject,
+    isString,
+    isCollection,
+    isNumber,
+    isAtomic,
+
+    // collections
     first,
     second,
     third,
     last,
-    nextToLast,
     empty,
-    avgOfArray,
-    maxOfArray,
+    map,
+    traverse,
+    getIn,
+    set,
+    setIn,
+    avg,
+    max,
     sum,
-    splitAt,
-    memberOf,
+    rand,
+    capitalize,
+
+    // functions
+    compose,
+    pipe,
+    repeat,
+    curry2,
+
+    // async
     delay,
-    parseNumber,
-    toDecimalPoint,
-    divisors,
-    fixInRange,
-    round,
-    floor,
-    ceil,
-    hexToString,
-    stringToHex,
-    hex,
-    arrayToString,
-    dataViewToString,
 
+    // events
+    xf,
+
+    // bits
     nthBit,
-    toBool,
+    bitToBool,
     nthBitToBool,
-
-    powerToZone,
-    hrToColor,
-    valueToHeight,
-    dateToDashString,
-    timeDiff,
-    secondsToHms,
-    formatDistance,
-    formatSpeed,
+    boolToNumber,
+    dataviewToArray,
+    dataviewToString,
+    stringToCharCodes,
+    toUint8Array,
     xor,
-    exists,
-    isSet
 };
+

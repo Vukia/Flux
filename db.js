@@ -1,81 +1,208 @@
-import { xf           } from './xf.js';
-import { Encode       } from './ant/fit.js';
-import { FileHandler  } from './file.js';
-import { IDB          } from './storage/idb.js';
-import { Session      } from './storage/session.js';
-import { Workout      } from './storage/workout.js';
-import { values       } from './values.js';
-
-import { avgOfArray, maxOfArray, sum,
-         first, last, round, mps, kph,
-         exists, timeDiff, fixInRange, memberOf } from './functions.js';
+import { xf, exists, equals } from '../functions.js';
+import { models } from './models/models.js';
 
 let db = {
-    pwr: 0,   // controllable
-    power: 0, // pm
-    hr: 0,
-    hrAnt: 0,
-    cad: 0,
-    spd: 0,
+    // Data Screen
+    power: models.power.default,
+    heartRate: models.heartRate.default,
+    cadence: models.cadence.default,
+    speed: models.speed.default,
     distance: 0,
+    sources: models.sources.default,
+
+    // Targets
+    powerTarget: models.powerTarget.default,
+    resistanceTarget: models.resistanceTarget.default,
+    slopeTarget: models.slopeTarget.default,
+    cadenceTarget: models.cadenceTarget.default,
+
+    mode: models.mode.default,
+    page: models.page.default,
+
+    // Profile
+    ftp: models.ftp.default,
+    weight: models.weight.default,
+    theme: models.theme.default,
+    measurement: models.measurement.default,
+
+    // UI options
+    powerSmoothing: 1,
+    dataTileSwitch: models.dataTileSwitch.default,
+
+    // Workouts
+    workouts: [],
+    workout: models.workout.default,
+
+    // Recording
+    records: [],
+    lap: [],
+    laps: [],
+    lapStartTime: false,
+    gpsData: [],
+    gps: false,
+
+    // Watch
     elapsed: 0,
     lapTime: 0,
-
+    stepTime: 0,
     intervalIndex: 0,
     stepIndex: 0,
     intervalDuration: 0,
     stepDuration: 0,
-    watchState: 'stopped',
-    workoutState: 'stopped',
+    watchStatus: 'stopped',
+    workoutStatus: 'stopped',
 
-    mode: 'erg',
-    powerTarget: 0,
-    powerTargetManual: 0,
-    powerMin: 0,
-    powerMax: 800,
-    powerInc: 10,
-    resistanceTarget: 0,
-    resistanceMin: 0,
-    resistanceMax: 100,
-    resistanceInc: 10,
-    slopeTarget: 0,
-    slopeMin: 0,
-    slopeMax: 30,
-    slopeInc: 0.5,
-
-    records: [],
-    lap: [],
-    laps: [],
-    lapStartTime: Date.now(),
-    timestamp: Date.now(),
-    inProgress: false,
-
-    ftp:         values.ftp.defaultValue(),
-    weight:      values.weight.defaultValue(),
-    theme:       values.theme.defaultValue(),
-    measurement: values.measurement.defaultValue(),
-    page:        values.page.defaultValue(),
-
-    workout: [],
-    workoutFile: '',
-    workouts: [],
-
-    points: [],
-
-    vibrate: true,
-    vibrateBtn: 10,
-    controllableFeatures: {},
-
+    // Request ANT+ Device
     antSearchList: [],
     antDeviceId: {},
-    antHrm: {},
-    antFec: {},
 };
 
-xf.initDB(db);
+xf.create(db);
 
+// Data Screen
+xf.reg(models.heartRate.prop, (heartRate, db) => {
+    db.heartRate = heartRate;
+});
 
-xf.reg('ui:ant:device:selected', (x, db) => {
+xf.reg(models.power.prop, (power, db) => {
+    db.power = power;
+});
+
+xf.reg(models.cadence.prop, (cadence, db) => {
+    db.cadence = cadence;
+});
+
+xf.reg(models.speed.prop, (speed, db) => {
+    db.speed = speed;
+});
+
+xf.reg(models.sources.prop, (sources, db) => {
+    db.sources = models.sources.set(db.sources, sources);
+    console.log(db.sources);
+});
+
+// Pages
+xf.reg('ui:page-set', (page, db) => {
+    db.page = models.page.set(page);
+});
+
+// Modes
+xf.reg('ui:mode-set', (mode, db) => {
+    db.mode = models.mode.set(mode);
+
+    if(equals(mode, 'erg')) {
+        xf.dispatch(`ui:power-target-set`, db.powerTarget);
+    }
+    if(equals(mode, 'resistance')) {
+        xf.dispatch(`ui:resistance-target-set`, db.resistanceTarget);
+    }
+    if(equals(mode, 'slope')) {
+        xf.dispatch(`ui:slope-target-set`, db.slopeTarget);
+    }
+});
+
+// UI options
+xf.reg('ui:data-tile-switch-set', (index, db) => {
+    db.dataTileSwitch = index;
+    models.dataTileSwitch.backup(db.dataTileSwitch);
+});
+
+// Targets
+xf.reg('ui:power-target-set', (powerTarget, db) => {
+    db.powerTarget = models.powerTarget.set(powerTarget);
+});
+xf.reg('ui:power-target-inc', (_, db) => {
+    db.powerTarget = models.powerTarget.inc(db.powerTarget);
+});
+xf.reg(`ui:power-target-dec`, (_, db) => {
+    db.powerTarget = models.powerTarget.dec(db.powerTarget);
+});
+xf.reg('ui:cadence-target-set', (cadenceTarget, db) => {
+    db.cadenceTarget = models.cadenceTarget.set(cadenceTarget);
+    console.log(`:zwo set target cadence ${db.cadenceTarget}`);
+});
+
+xf.reg('ui:resistance-target-set', (resistanceTarget, db) => {
+    db.resistanceTarget = models.resistanceTarget.set(resistanceTarget);
+});
+xf.reg('ui:resistance-target-inc', (_, db) => {
+    db.resistanceTarget = models.resistanceTarget.inc(db.resistanceTarget);
+});
+xf.reg(`ui:resistance-target-dec`, (_, db) => {
+    db.resistanceTarget = models.resistanceTarget.dec(db.resistanceTarget);
+});
+
+xf.reg('ui:slope-target-set', (slopeTarget, db) => {
+    db.slopeTarget = models.slopeTarget.set(slopeTarget);
+});
+xf.reg('ui:slope-target-inc', (_, db) => {
+    db.slopeTarget = models.slopeTarget.inc(db.slopeTarget);
+});
+xf.reg(`ui:slope-target-dec`, (_, db) => {
+    db.slopeTarget = models.slopeTarget.dec(db.slopeTarget);
+});
+
+// Profile
+xf.reg('ui:ftp-set', (ftp, db) => {
+    db.ftp = models.ftp.set(ftp);
+    models.ftp.backup(db.ftp);
+});
+xf.reg('ui:weight-set', (weight, db) => {
+    db.weight = models.weight.set(weight);
+    models.weight.backup(db.weight);
+});
+xf.reg('ui:theme-switch', (_, db) => {
+    db.theme = models.theme.switch(db.theme);
+    models.theme.backup(db.theme);
+});
+xf.reg('ui:measurement-switch', (_, db) => {
+    db.measurement = models.measurement.switch(db.measurement);
+    models.measurement.backup(db.measurement);
+});
+
+// Workouts
+xf.reg('workout', (workout, db) => {
+    db.workout = models.workout.set(workout);
+});
+xf.reg('ui:workout:select', (id, db) => {
+    db.workout = models.workouts.get(db.workouts, id);
+});
+xf.reg('ui:workout:upload', async function(workoutFile, db) {
+    const workoutText = await models.workout.readFromFile(workoutFile);
+    const workout = models.workout.parse(workoutText);
+    models.workouts.add(db.workouts, workout);
+    xf.dispatch('db:workouts', db);
+});
+xf.reg('ui:activity:save', (_, db) => {
+    try {
+        models.workout.save(db);
+        xf.dispatch('activity:save:success');
+    } catch (err) {
+        console.error(`Error on activity save: `, err);
+        xf.dispatch('activity:save:fail');
+    }
+});
+xf.reg('activity:save:success', (e, db) => {
+    // file:download:activity
+    // reset db session:
+    db.records = [];
+    db.resistanceTarget = 0;
+    db.slopeTarget = 0;
+    db.powerTarget = 0;
+});
+
+// Wake Lock
+xf.reg('lock:beforeunload', (e, db) => {
+    // backup session
+    models.session.backup(db);
+});
+xf.reg('lock:release', (e, db) => {
+    // backup session
+    models.session.backup(db);
+});
+
+// Request ANT+ Device
+xf.reg('ui:ant:request:selected', (x, db) => {
     db.antDeviceId = db.antSearchList.filter(d => {
         return d.deviceNumber === parseInt(x);
     })[0];
@@ -86,239 +213,35 @@ function includesDevice(devices, id) {
 xf.reg(`ant:search:device-found`, (x, db) => {
     if(includesDevice(db.antSearchList, x)) return;
     db.antSearchList.push(x);
+    db.antSearchList = db.antSearchList;
+});
+xf.reg(`ant:search:stopped`, (x, db) => {
+    db.antSearchList = [];
 });
 
-// Register DB Events
-xf.reg('device:hr',       (x, db) => db.hr       = x);
-xf.reg('device:pwr',      (x, db) => db.pwr      = x);
-xf.reg('device:spd',      (x, db) => db.spd      = x);
-xf.reg('device:cad',      (x, db) => db.cad      = x);
-xf.reg('device:dist',     (x, db) => db.distance = x);
-xf.reg('pm:power',        (x, db) => db.power    = x);
-xf.reg('ant:hr',          (x, db) => db.hrAnt    = x);
-xf.reg('ant:fec:power',   (x, db) => db.pwr      = x);
-xf.reg('ant:fec:speed',   (x, db) => db.spd      = x);
-xf.reg('ant:fec:cadence', (x, db) => db.cadence  = x);
+//
+xf.reg('app:start', async function(_, db) {
 
-xf.reg('ui:page',     (x, db) => db.page   = x);
-xf.reg('ui:ftp',      (x, db) => db.ftp    = x);
-xf.reg('ui:weight',   (x, db) => db.weight = x);
-xf.reg('ui:theme', (_, db) => {
-    db.theme = values.theme.switch(db.theme);
-});
-xf.reg('ui:measurement', (_, db) => {
-    db.measurement = values.measurement.switch(db.measurement);
-});
-xf.reg('storage:set:ftp',         (x, db) => {
-    db.ftp = x;
-});
-xf.reg('storage:set:weight',      (x, db) => db.weight = x);
-xf.reg('storage:set:theme',       (x, db) => db.theme = x);
-xf.reg('storage:set:measurement', (x, db) => db.measurement = x);
+    db.ftp = models.ftp.restore();
+    db.weight = models.weight.restore();
+    db.theme = models.theme.restore();
+    db.measurement = models.measurement.restore();
+    db.dataTileSwitch = models.dataTileSwitch.restore(),
 
-xf.reg('ui:workoutFile', (x, db) => {
-    db.workoutFile = x;
-    console.log('ui:workoutFile');
-    console.log(x);
-});
-xf.reg('ui:workout:set', (x, db) => {
-    db.workout = db.workouts[x];
-});
-xf.reg('workout:add', (x, db) => db.workouts.push(x));
+    db.workouts = models.workouts.restore();
+    db.workout = models.workout.restore(db);
 
-// Watch
-// >> watch.js
-// watch end
-
-xf.reg('ui:activity:save', (x, db) => {
-    let activity   = Encode({data: db.records, laps: db.laps});
-    let fileHandler = new FileHandler();
-    fileHandler.downloadActivity(activity);
-});
-
-
-// Control Modes
-xf.reg('device:features', (features, db) => {
-    // {targets:  ['Power'],
-    //  readings: ['Power'],
-    //  params:   {power: {min: 0, max: 800, inc: 1}}};
-    console.log(features);
-
-    db.controllableFeatures = features;
-
-    db.powerMin = features.params.power.min;
-    db.powerMax = features.params.power.max;
-    db.powerInc = 10;
-
-    db.resistanceMin = features.params.resistance.min;
-    db.resistanceMax = features.params.resistance.max;
-    db.resistanceInc = 100;
-
-    db.slopeMin = 0;
-    db.slopeMax = 45;
-    db.slopeInc = 0.5;
-});
-
-function validatePowerTarget(target, min, max) {
-    return fixInRange(target, min, max);
-}
-function validateResistanceTarget(target, min, max) {
-    return fixInRange(target, min, max);
-}
-function validateSlopeTarget(target, min, max) {
-    return fixInRange(target, min, max);
-}
-
-xf.reg('ui:power-target-set', (target, db) => {
-    db.powerTarget = validatePowerTarget(target, db.powerMin, db.powerMax);
-});
-xf.reg('ui:power-target-inc', (_, db) => {
-    let target = db.powerTarget + db.powerInc;
-    db.powerTarget = validatePowerTarget(target, db.powerMin, db.powerMax);
-});
-xf.reg('ui:power-target-dec', (_, db) => {
-    let target = db.powerTarget - db.powerInc;
-    db.powerTarget = validatePowerTarget(target, db.powerMin, db.powerMax);
-});
-
-xf.reg('ui:power-target-manual-set', (target, db) => {
-    let power = validatePowerTarget(target, db.powerMin, db.powerMax);
-    db.powerTargetManual = power;
-    db.powerTarget       = power;
-});
-xf.reg('ui:power-target-manual-inc', (_, db) => {
-    let target = db.powerTargetManual + db.powerInc;
-    let power  = validatePowerTarget(target, db.powerMin, db.powerMax);
-    db.powerTargetManual = power;
-    db.powerTarget       = power;
-});
-xf.reg('ui:power-target-manual-dec', (_, db) => {
-    let target = db.powerTargetManual - db.powerInc;
-    let power  = validatePowerTarget(target, db.powerMin, db.powerMax);
-    db.powerTargetManual = power;
-    db.powerTarget       = power;
-});
-
-xf.reg('ui:resistance-target-set', (target, db) => {
-    db.resistanceTarget = validateResistanceTarget(target, db.resistanceMin, db.resistanceMax);
-});
-xf.reg('ui:resistance-target-inc', (_, db) => {
-    let target = db.resistanceTarget + db.resistanceInc;
-    db.resistanceTarget = validateResistanceTarget(target, db.resistanceMin, db.resistanceMax);
-});
-xf.reg('ui:resistance-target-dec', (_, db) => {
-    let target = db.resistanceTarget - db.resistanceInc;
-    db.resistanceTarget = validateResistanceTarget(target, db.resistanceMin, db.resistanceMax);
-});
-
-xf.reg('ui:slope-target-set', (target, db) => {
-    db.slopeTarget = validateSlopeTarget(target, db.slopeMin, db.slopeMax);
-});
-xf.reg('ui:slope-target-inc', (_, db) => {
-    let target = db.slopeTarget + db.slopeInc;
-    db.slopeTarget = validateSlopeTarget(target, db.slopeMin, db.slopeMax);
-});
-xf.reg('ui:slope-target-dec', (_, db) => {
-    let target = db.slopeTarget - db.slopeInc;
-    db.slopeTarget = validateSlopeTarget(target, db.slopeMin, db.slopeMax);
-});
-
-xf.reg('ui:erg-mode', (e, db) => {
-    db.mode = 'erg';
-
-    if(e !== undefined) {
-        if(e.update === false) { return; }
-    }
-
-    xf.dispatch('ui:power-target-manual-set', db.powerTargetManual);
-    // xf.dispatch('ui:power-target-set', db.powerTargetManual);
-});
-xf.reg('ui:resistance-mode', (e, db) => {
-    db.mode = 'resistance';
-    xf.dispatch('ui:resistance-target-set', db.resistanceTarget);
-});
-xf.reg('ui:slope-mode', (e, db) => {
-    db.mode = 'slope';
-
-    if(e !== undefined) {
-        if(e.update === false) { return; }
-    }
-
-    xf.dispatch('ui:slope-target-set', db.slopeTarget);
-});
-// Control Modes end
-
-
-
-// Session
-let idb     = new IDB();
-let session = {};
-
-function dbToSession(db) {
-    let session = {
-        elapsed:           db.elapsed,
-        lapTime:           db.lapTime,
-        stepTime:          db.stepTime,
-        intervalIndex:     db.intervalIndex,
-        powerTarget:       db.powerTarget,
-        powerTargetManual: db.powerTargetManual,
-        slopeTarget:       db.slopeTarget,
-        stepIndex:         db.stepIndex,
-        mode:              db.mode,
-
-        watchState:        db.watchState,
-        workoutState:      db.workoutState,
-        workout:           db.workout,
-
-        records:           db.records,
-
-        page:              db.page,
-        // theme:             db.theme,
-        // weight:            db.weight,
-        // measurement:       db.measurement,
-    };
-    return session;
-}
-
-xf.reg('app:start', async function (x, db) {
-    await idb.open('store', 1, 'session');
-    session = new Session({idb: idb, name: 'session'});
-    await session.restore();
-    xf.dispatch('db:ready');
-});
-
-xf.reg('lock:beforeunload', (e, db) => {
-    session.save(idb, dbToSession(db));
-});
-xf.reg('lock:release', (e, db) => {
-    session.save(idb, dbToSession(db));
-});
-xf.reg(`session:restore`, (session, db) => {
-
-    // Restore DB state
-    for(let prop in session) {
-        if (session.hasOwnProperty(prop)) {
-            db[prop] = session[prop];
-        }
-    }
-
-    // Start Workout with restored db state
+    await models.session.start();
+    await models.session.restore(db);
     xf.dispatch('workout:restore');
-    // Restore BLE Devices
-    // db.controllable = session.controllable;
-    // db.hrm          = session.hrm;
-    // console.log(session);
+
 });
 
-xf.reg('file:download:activity', (e, db) => {
-    // reset db session:
-    db.records     = [];
-    db.resistanceTarget = 0;
-    db.slopeTarget = 0;
-    db.targetPwr    = 0;
-});
-// Session end
+function start () {
+    console.log('start db');
+    xf.dispatch('db:start');
+}
 
-// values.theme.init();
+start();
 
 export { db };

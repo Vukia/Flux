@@ -1,51 +1,66 @@
-import { xf } from '../xf.js';
-import { memberOf } from '../functions.js';
+//
+// LocalStorageItem
+//
 
-class LocalStorageItem {
-    constructor(args) {
-        this.key      = args.key;
-        this.default  = args.default;
-        this.validate = args.validate;
-        this.init();
-    }
-    init() {
-        const self = this;
-        self.restore();
-    }
-    restore() {
-        const self = this;
-        const initialValue = self.get();
-        if(initialValue === null) {
-            self.set(self.default);
+import { equals, exists, existance } from '../functions.js';
+
+function LocalStorageItem(args = {}) {
+    const defaults = {
+        fallback: '',
+        isValid:  function (v) { return exists(v); },
+        parse:    function(str) { return str; }
+    };
+
+    let key      = args.key;
+    let fallback = existance(args.fallback, defaults.fallback);
+    let isValid  = existance(args.isValid, defaults.isValid);
+    let parse    = existance(args.parse, defaults.parse);
+
+    if(!exists(key)) throw new Error('LocalStorageItem needs a key!');
+
+    function restore() {
+        const inStorageValue = get();
+
+        if(equals(inStorageValue, fallback)) {
+            set(fallback);
         }
-        const key   = self.key;
-        const value = self.get();
-        xf.dispatch(`storage:set:${key}`, value);
+
+        return get();
     }
-    get() {
-        const self  = this;
-        const key   = self.key;
+
+    function get() {
         const value = window.localStorage.getItem(`${key}`);
-        if(value === undefined || value === null) {
+
+        if(!exists(value)) {
             console.warn(`Trying to get non-existing value from Local Storage at key ${key}!`);
+            return fallback;
         }
-        return value;
+
+        return parse(value);
     }
-    set(value) {
-        const self    = this;
-        const key     = self.key;
-        const isValid = self.validate(value);
-        if(isValid) {
+
+    function set(value) {
+        if(isValid(value)) {
             window.localStorage.setItem(`${key}`, value);
+            return value;
         } else {
-            console.warn(`Trying to enter invalid ${key} value in Local Storage: ${value}`);
-            window.localStorage.setItem(`${key}`, self.default);
+            console.warn(`Trying to enter invalid ${key} value in Local Storage: ${typeof value}`, value);
+            window.localStorage.setItem(`${key}`, fallback);
+            return fallback;
         }
     }
-    delete() {
-        const self    = this;
-        window.localStorage.removeItem(`${self.key}`);
+
+    function remove() {
+        window.localStorage.removeItem(`${key}`);
     }
+
+    return Object.freeze({
+        restore,
+        get,
+        set,
+        remove,
+    });
 }
 
 export { LocalStorageItem };
+

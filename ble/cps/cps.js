@@ -1,80 +1,76 @@
-import { nthBitToBool } from '../../functions.js';
+import { uuids } from '../uuids.js';
+import { BLEService } from '../service.js';
+import { feature } from './cycling-power-feature.js';
+import { Measurement } from './cycling-power-measurement.js';
+import { control } from './control-point.js';
+import { equals, exists, existance, first } from '../../functions.js';
 
-const pedalPowerBalance       = (flags) => nthBitToBool(flags,  0);
-const pedalPowerBalanceRef    = (flags) => nthBitToBool(flags,  1);
-const accumulatedTorque       = (flags) => nthBitToBool(flags,  2);
-const accumulatedTorqueSource = (flags) => nthBitToBool(flags,  3);
-const wheelRevolutionData     = (flags) => nthBitToBool(flags,  4);
-const crankRevolutionData     = (flags) => nthBitToBool(flags,  5);
-const extremeForceMagnitudes  = (flags) => nthBitToBool(flags,  6);
-const extremeTorqueMagnitudes = (flags) => nthBitToBool(flags,  7);
-const extremeAngles           = (flags) => nthBitToBool(flags,  8);
-const topDeadSpotAngle        = (flags) => nthBitToBool(flags,  9);
-const bottomDeadSpotAngle     = (flags) => nthBitToBool(flags, 10);
-const accumulatedEnergy       = (flags) => nthBitToBool(flags, 11);
-const offsetIndicator         = (flags) => nthBitToBool(flags, 12);
+class CyclingPowerService extends BLEService {
+    uuid = uuids.cyclingPower;
 
-const fields = {
-    flags:                      { size: 2 },
-    power:                      { size: 2, resolution: 1 },
-    pedalPowerBalance:          { size: 1, resolution: 0.5 },
-    accumulatedTorque:          { size: 2, resolution: (1/32) },
-    cumulativeWheelRevolutions: { size: 4, resolution: 1 },
-    lastWheelEventTime:         { size: 2, resolution: (1/2048) },
-    cumulativeCrankRevolutions: { size: 2, resolution: 1 },
-    lastCrankEventTime:         { size: 2, resolution: (1/1024)},
-    maximumForceMagnitude:      { size: 2, resolution: 1 },
-    minimumForceMagnitude:      { size: 2, resolution: 1 },
-    maximumTorqueMagnitude:     { size: 2, resolution: 1 },
-    minimumTorqueMagnitude:     { size: 2, resolution: 1 }
-    // ...
-};
+    postInit(args) {
+        this.onData    = existance(args.onData,    this.defaultOnData);
+        this.onControl = existance(args.onControl, this.defaultOnControlPoint);
 
-function cadencePresent(flags) {
-    return nthBitToBool(flags, 5);
+        this.characteristics = {
+            cyclingPowerFeature: {
+                uuid: uuids.cyclingPowerFeature,
+                supported: false,
+                characteristic: undefined,
+            },
+            cyclingPowerMeasurement: {
+                uuid: uuids.cyclingPowerMeasurement,
+                supported: false,
+                characteristic: undefined,
+            },
+            cyclingPowerControlPoint: {
+                uuid: uuids.cyclingPowerControlPoint,
+                supported: false,
+                characteristic: undefined,
+            },
+        };
+    }
+    async config() {
+        const self = this;
+        self.features = await self.getFeatures();
+
+        const measurement = Measurement();
+
+        if(self.supported('cyclingPowerMeasurement')) {
+            await self.sub('cyclingPowerMeasurement',
+                           measurement.decode,
+                           self.onData.bind(self));
+        }
+
+        if(self.supported('cyclingPowerControlPoint')) {
+            await self.sub('cyclingPowerControlPoint',
+                           control.response.decode,
+                           self.onControl.bind(self));
+
+            await self.requestControl();
+        }
+    }
+    async getFeatures(service) {
+        const self = this;
+        const features = self.read('cyclingPowerFeature', feature.decode);
+
+        console.log(':rx :cyclingPowerFeature ', JSON.stringify(features));
+
+        return features;
+    }
+    async requestControl() {
+        const self = this;
+        const buffer = control.requestControl.encode();
+
+        return await self.write('cyclingPowerControlPoint', buffer);
+    }
+    defaultOnData(decoded) {
+        console.log(':rx :cps :measurement ', JSON.stringify(decoded));
+    }
+    defaultOnControlPoint(decoded) {
+        control.response.toString(decoded);
+    }
 }
 
-function powerIndex(flags) {
-    let i = fields.flags.size;
-    return i;
-}
-function crankRevolutionsIndex(flags) {
-    let i = fields.flags.size;
-    return i + 7;
-}
-function crankEventIndex(flags) {
-    let i = fields.flags.size;
-    return i + 9;
-}
+export { CyclingPowerService };
 
-function getPower(dataview) {
-    const flags = dataview.getUint16(0, true);
-    return dataview.getInt16(powerIndex(flags), true);
-}
-function getCrankRevolutions(dataview) {
-    const flags = dataview.getUint16(0, true);
-    return dataview.getInt16(crankRevolutionsIndex(flags), true);
-}
-function getCrankEvent(dataview) {
-    const flags = dataview.getUint16(0, true);
-    return dataview.getInt16(crankEventIndex(flags), true);
-}
-
-function dataviewToCyclingPowerMeasurement(dataview) {
-
-//               0  1  2  3  4  5  6  7  8  9 10 11 12 13
-//  value: (0x) 30-00-21-00-2A-00-00-00-C4-60-12-00-F7-04
-//
-    const flags = dataview.getUint16(0, true);
-    let    data = {};
-
-    data['power'] = getPower(dataview);
-
-    return data;
-}
-
-let cps = {
-    dataviewToCyclingPowerMeasurement,
-};
-
-export { cps };
